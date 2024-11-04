@@ -1,0 +1,29 @@
+Compound Name	Compound Type
+"L-phenylalanine-phenyl-d5-2,3,3-d3 1"	Amino Acid
+"L-tyrosine-3,3-d2 2"	Amino Acid
+3-(1-pyrazolyl)-L-alanine	Amino Acid
+dibenzofuran	Benezenoid
+eugenol	Phenol
+L-pyroglutamic acid	Amino Acid
+L-threonine	Amino Acid
+L-serine	Amino Acid
+L-phenylalanine	Amino Acid
+L-glutamine	Amino Acid
+talose 2	Sugar
+gluconolactone 2	Sugar
+glucuronic acid  2	Sugar
+glucuronic acid 4	Sugar
+gluconolactone 1	Sugar
+gluconolactone 3	Sugar
+D (+)altrose 2	Sugar
+D (+)altrose 1	Sugar
+D-allose 2	Sugar
+D-sorbitol	Sugar
+L-alanine	Amino Acid
+D-fructose	Sugar
+myristic acid	Fatty Acid
+galactonic acid	Fatty Acid
+trans-aconitic acid	Fatty Acid
+stearic acid	Fatty Acid
+D-glucose	Sugar
+myo-inositol	Sugar
