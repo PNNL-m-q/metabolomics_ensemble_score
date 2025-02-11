@@ -125,6 +125,37 @@ Fig1
 ## TABLE 1: All Performance Metrics --------------------------------------------
 ################################################################################
 
+####################
+## CALCULATE AUCs ##
+####################
+
+# Get ROC scores
+data.frame(
+  "Score" = c("Full Model", "Reduced Model", "Stein Scott Similarity NIST",
+              "Stein Scott Similarity", "DFT Correlation", "DWT Correlation", 
+              "Weighted Cosine Correlation", "Inner Product Distance"),
+  "AUC" = c(make_curve(test_pred %>% select(.pred_0, Truth.Annotation), "Full Model", convert = FALSE, 
+                       plot = FALSE),
+            make_curve(red_pred %>% select(.pred_0, Truth.Annotation), "Reduced Model", convert = FALSE,
+                       plot = FALSE),
+            make_curve(test_data %>% select(`Stein Scott Similarity Nist`, Truth.Annotation), 
+                       "Stein Scott Similarity NIST", flip_score = T, plot = FALSE),
+            make_curve(test_data %>% select(`Stein Scott Similarity`, Truth.Annotation), 
+                       "Stein Scott Similarity", flip_score = T, plot = FALSE),
+            make_curve(test_data %>% select(`DFT Correlation`, Truth.Annotation), "DFT Correlation", 
+                       flip_score = T, plot = FALSE),
+            make_curve(test_data %>% select(`DWT Correlation`, Truth.Annotation), "DWT Correlation",
+                       flip_score = T, plot = FALSE),
+            make_curve(test_data %>% select(`Weighted Cosine Correlation`, Truth.Annotation),
+                       "Weighted Cosine Correlation", flip_score = T, plot = FALSE),
+            make_curve(test_data %>% select(`Inner Product Distance`, Truth.Annotation), 
+                       "Inner Product Distance", plot = FALSE))
+)
+
+##########################
+## CALCULATE THRESHOLDS ##
+##########################
+
 # Determine score thresholds
 workflow <- readRDS("~/Downloads/MQ_RF/wf_complete.RDS")
 train_scores <- do.call(rbind, lapply(workflow$option[[1]]$resamples$splits, function(x) {x$data})) %>%
@@ -155,10 +186,8 @@ train_rocs <- cbind(train_scores %>% select(Truth.Annotation, Stein.Scott.Simila
   roc_curve(Truth.Annotation, Value)
 autoplot(train_rocs)
 
-# Calculate TP, TN, FP, FN
-
 # Calculate F1 score for each threshold
-train_rocs %>%
+thresholds <- train_rocs %>%
   mutate(
     TP = 7408 * sensitivity,
     FN = 7408 - TP,
@@ -167,72 +196,69 @@ train_rocs %>%
     Precision = TP / (TP + FP),
     Recall = TP / (TP + FN),
     F1 = (2 * Precision * Recall) / (Precision + Recall)
-  ) 
-
-
-
-
-# Get count of TP, TN, FP, FN
-get_t_count <- function(pred_df, tag) {
-  counts <- caret::confusionMatrix(data = pred_df$pred_class, reference = pred_df$Truth.Annotation)$table %>%
-    data.frame()
-  if (tag == "TP") {counts %>% filter(Prediction == 1 & Reference == 1) %>% select(Freq) %>% unlist()} 
-  else if (tag == "FP") {counts %>% filter(Prediction == 1 & Reference == 0) %>% select(Freq) %>% unlist()}
-  else if (tag == "TN") {counts %>% filter(Prediction == 0 & Reference == 0) %>% select(Freq) %>% unlist()} 
-  else {counts %>% filter(Prediction == 0 & Reference == 1) %>% select(Freq) %>% unlist()}
-}
-
-
-# Get ROC scores
-data.frame(
-  "Score" = c("Full Model", "Reduced Model", "Stein Scott Similarity NIST",
-              "Stein Scott Similarity", "DFT Correlation", "DWT Correlation", 
-              "Weighted Cosine Correlation", "Inner Product Distance"),
-  "AUC" = c(make_curve(test_pred %>% select(.pred_0, Truth.Annotation), "Full Model", convert = FALSE, 
-                       plot = FALSE),
-            make_curve(red_pred %>% select(.pred_0, Truth.Annotation), "Reduced Model", convert = FALSE,
-                       plot = FALSE),
-            make_curve(test_data %>% select(`Stein Scott Similarity Nist`, Truth.Annotation), 
-                       "Stein Scott Similarity NIST", flip_score = T, plot = FALSE),
-            make_curve(test_data %>% select(`Stein Scott Similarity`, Truth.Annotation), 
-                       "Stein Scott Similarity", flip_score = T, plot = FALSE),
-            make_curve(test_data %>% select(`DFT Correlation`, Truth.Annotation), "DFT Correlation", 
-                       flip_score = T, plot = FALSE),
-            make_curve(test_data %>% select(`DWT Correlation`, Truth.Annotation), "DWT Correlation",
-                       flip_score = T, plot = FALSE),
-            make_curve(test_data %>% select(`Weighted Cosine Correlation`, Truth.Annotation),
-                       "Weighted Cosine Correlation", flip_score = T, plot = FALSE),
-            make_curve(test_data %>% select(`Inner Product Distance`, Truth.Annotation), 
-                       "Inner Product Distance", plot = FALSE))
-)
-
-
-
-
-
-
-TP <- 2443
-FP <- 558
-TN <- 14501
-FN <- 27
-
-# Metric table
-data.frame(
-  Metric = c("TPR", "TNR"),
-  Value = c(TP / (TP + FN), TN / (TN + FP))
-) %>% 
-  pivot_wider(names_from = Metric, values_from = Value) %>%
-  mutate(
-    BA = (TPR + TNR) / 2,
-    Recall = TP / (TP + FN),
-    Precision = TP / (TP + FP),
-    F1 = (2 * Precision * Recall) / (Precision + Recall),
-    AUC = 0.996 # roc_auc(test_pred, truth = Truth.Annotation, .pred_0)
   ) %>%
-  pivot_longer(cols = 1:6) %>%
-  rename(Metric = name, Value = value) %>% knitr::kable()
+  group_by(Score) %>%
+  slice_max(order_by = F1, n = 1, with_ties = FALSE) %>%
+  arrange(-F1)
+thresholds
+thresholds$.threshold
 
+##########################################
+## NOW APPLY THRESHOLDS ON TESTING DATA ##
+##########################################
 
+# Load testing data 
+ScoreMetadata <- fread("~/Git_Repos/refined_ss_score/Metadata/Score_Metadata.txt")
+test <- fread("~/Downloads/MQ_RF/Test_Sum.txt")  %>%
+  dplyr::select(Truth.Annotation, ScoreMetadata$Score) %>%
+  dplyr::mutate(Truth.Annotation = factor(ifelse(Truth.Annotation == "True.Positive", "1", "0"), levels = c("0", "1"))) %>%
+  data.frame()
+test[,33] <- as.numeric(test[,33])
+table(test$Truth.Annotation) # 15059 true negatives, 2470 true positives 
+
+# Pull prediction probabilities 
+full_pred <- readRDS("~/Downloads/MQ_RF/test_pred.RDS")
+red_pred <- readRDS("~/Downloads/MQ_RF/red_test_pred.RDS")
+
+# Build data.frame of scores and convert to class prediction based on established
+# thresholds in the training data. Then, calculate all True Positives, True Negatives,
+# False Positives, and False Negatives 
+table1 <- test %>%
+  select(Truth.Annotation, Stein.Scott.Similarity.Nist, Stein.Scott.Similarity, 
+         DFT.Correlation, DWT.Correlation, Weighted.Cosine.Correlation, Inner.Product.Distance) %>%
+  cbind(full_pred %>% select(.pred_1) %>% rename(Full = .pred_1)) %>%
+  cbind(red_pred %>% select(.pred_1) %>% rename(Reduced = .pred_1)) %>%
+  mutate(
+    Stein.Scott.Similarity.Nist = ifelse(Stein.Scott.Similarity.Nist > 0.4998, 1, 0),
+    Stein.Scott.Similarity = ifelse(Stein.Scott.Similarity > 0.5639, 1, 0),
+    DFT.Correlation = ifelse(DFT.Correlation > 0.4517, 1, 0),
+    DWT.Correlation = ifelse(DWT.Correlation > 0.4790, 1, 0),
+    Weighted.Cosine.Correlation = ifelse(Weighted.Cosine.Correlation > 0.5157, 1, 0),
+    Inner.Product.Distance = ifelse(Inner.Product.Distance > 0.9346, 1, 0),
+    Full = ifelse(Full > 0.3850, 1, 0),
+    Reduced = ifelse(Reduced > 0.3880, 1, 0)
+  ) %>%
+  pivot_longer(2:ncol(.)) %>%
+  mutate(
+    Annotation = "",
+    Annotation = ifelse(Truth.Annotation == 1 & value == 1, "TP", Annotation),
+    Annotation = ifelse(Truth.Annotation == 1 & value == 0, "FN", Annotation),
+    Annotation = ifelse(Truth.Annotation == 0 & value == 0, "TN", Annotation),
+    Annotation = ifelse(Truth.Annotation == 0 & value == 1, "FP", Annotation)
+  ) %>%
+  group_by(name) %>%
+  summarise(
+    TP = sum(Annotation == "TP"),
+    FN = sum(Annotation == "FN"),
+    TN = sum(Annotation == "TN"),
+    FP = sum(Annotation == "FP")
+  ) %>%
+  rename(Score = name) %>%
+  mutate(TrueTotal = TP + FN, FalseTotal = TN + FP) %>% # Should be 2470 in TrueTotal and 15059 in FalseTotal
+  mutate(TPR = TP / TrueTotal,
+         TNR = TN / FalseTotal,
+         BA = map2_dbl(TPR, TNR, function(x,y) {mean(c(x,y))}))
+table1
 
 ################################################################################
 ## FIGURE 2: Scree plots and visualization of performance per metadata variable
@@ -425,6 +451,27 @@ F4b <- F_Ranks %>%
 
 (F4a + F4b) / F4c + plot_annotation(tag_levels = "A")
 
+################################################################################
+## CROSS VALIDATION CHECK 
+################################################################################
+
+workflow <- readRDS("~/Downloads/MQ_RF/wf_complete.RDS")
+
+do.call(rbind, workflow$result[[1]]$.metrics) %>%
+  filter(trees == 1000 & mtry == 33) %>%
+  select(.estimate) %>%
+  unlist() %>%
+  mean()
+
+library(randomForest)
+ScoreMetadata <- fread("~/Git_Repos/refined_ss_score/Metadata/Score_Metadata.txt")
+test <- fread("~/Downloads/MQ_RF/Test_Sum.txt")  %>%
+  dplyr::select(Truth.Annotation, ScoreMetadata$Score) %>%
+  dplyr::mutate(Truth.Annotation = factor(ifelse(Truth.Annotation == "True.Positive", "1", "0"), levels = c("0", "1"))) %>%
+  data.frame()
+test[,33] <- as.numeric(test[,33])
+
+randomForest(Truth.Annotation ~ ., data = test, mtry = 33, ntree = 1000)
 
 
 
