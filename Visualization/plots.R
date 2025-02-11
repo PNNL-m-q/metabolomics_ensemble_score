@@ -45,22 +45,171 @@ Imp <- importance(model$fit) %>%
 ## FIGURE 1: FULL MODEL PERFORMANCE--------------------------------------------- 
 ################################################################################
 
-conf_mat(test_pred, truth = Truth.Annotation, estimate = pred_class) %>%
-  autoplot(type = "heatmap")
-
 # Confusion matrix 
 Fig1a <- data.frame(
   Truth = factor(c("0", "1", "0", "1"), levels = c("1", "0")),
   Prediction = factor(c("1", "1", "0", "0"), levels = c("0", "1")),
   Count = c(558, 2443, 14501, 27),
-  Labels = c("False Positives:\n558", "True Positives:\n2443", "True Negatives:\n14501", "False Negatives:\n27")
+  Labels = c("False\nPositives:\n558", "True\nPositives:\n2443", "True\nNegatives:\n14501", "False\nNegatives:\n27")
 ) %>%
   ggplot(aes(x = Truth, y = Prediction, fill = Count, label = Labels)) + 
   geom_tile() +
   geom_text() +
-  ggtitle("Confusion Matrix") +
   scale_fill_gradient2(low = "white", high = "steelblue") +
-  theme(legend.position = "none", plot.title = element_text(hjust = 0.5))
+  theme(legend.position = "none", plot.title = element_text(hjust = 0.5),
+        axis.text.x = element_text(size = 12), 
+        axis.text.y = element_text(size = 12),,
+        axis.title.x = element_text(size = 14),
+        axis.title.y = element_text(size = 14))
+
+# Read in test data 
+test_data <- fread("~/Downloads/MQ_RF/Test_Sum.txt")
+
+# Make a curve for any dataset
+make_curve <- function(subdata, score_name, convert = TRUE, flip_score = FALSE, plot = TRUE) {
+  colnames(subdata) <- c("Score", "Truth.Annotation")
+  if (convert) {
+    subdata <- subdata %>% 
+      mutate(Truth.Annotation = as.factor(ifelse(Truth.Annotation == "True.Positive", 1, 0)))
+  }
+  if (flip_score) {
+    subdata <- subdata %>%
+      mutate(Score = 1 - Score)
+  }
+  if (plot) {
+    return(
+      roc_curve(subdata, truth = Truth.Annotation, Score) %>% 
+        mutate(Score = score_name)
+    )
+  } else {
+    return(
+      roc_auc(subdata, truth = Truth.Annotation, Score)$.estimate
+    )
+  }
+
+}
+
+# Build ROC data.frame
+ROC_DF <- rbind(
+  make_curve(test_pred %>% select(.pred_0, Truth.Annotation), "Full Model", convert = FALSE),
+  make_curve(test_data %>% select(`Stein Scott Similarity Nist`, Truth.Annotation), 
+             "Stein Scott Similarity NIST", flip_score = T),
+  make_curve(test_data %>% select(`Stein Scott Similarity`, Truth.Annotation), 
+             "Stein Scott Similarity", flip_score = T),
+  make_curve(test_data %>% select(`DFT Correlation`, Truth.Annotation), "DFT Correlation", 
+             flip_score = T),
+  make_curve(test_data %>% select(`DWT Correlation`, Truth.Annotation), "DWT Correlation",
+             flip_score = T),
+  make_curve(test_data %>% select(`Weighted Cosine Correlation`, Truth.Annotation),
+             "Weighted Cosine Correlation", flip_score = T),
+  make_curve(test_data %>% select(`Inner Product Distance`, Truth.Annotation), 
+             "Inner Product Distance")
+)
+
+Fig1b <- ROC_DF %>%
+  rename(Sensitivity = sensitivity, Specificity = specificity) %>%
+  ggplot(aes(x = 1 - Specificity, y = Sensitivity, color = Score)) + 
+  geom_line() +
+  xlab("False Positive Rate") + 
+  ylab("True Positive Rate") +
+  theme(axis.text.x = element_text(size = 12), 
+        axis.text.y = element_text(size = 12),
+        legend.text = element_text(size = 12),
+        axis.title.x = element_text(size = 14),
+        axis.title.y = element_text(size = 14))
+
+Fig1 <- Fig1a + Fig1b + plot_layout(widths = c(1,1.5)) + plot_annotation(tag_levels = "A")
+Fig1
+
+################################################################################
+## TABLE 1: All Performance Metrics --------------------------------------------
+################################################################################
+
+# Determine score thresholds
+workflow <- readRDS("~/Downloads/MQ_RF/wf_complete.RDS")
+train_scores <- do.call(rbind, lapply(workflow$option[[1]]$resamples$splits, function(x) {x$data})) %>%
+  unique()
+
+# Build prediction for the full model and reduced model
+train_full <- predict(readRDS("~/Downloads/MQ_RF/train_fitted.RDS"), new_data = train_scores, type = "prob") %>%
+  select(.pred_0) %>%
+  rename(Full = .pred_0)
+train_reduce <- predict(readRDS("~/Downloads/MQ_RF/red_train_fitted.RDS"), new_data = train_scores, type = "prob") %>%
+  select(.pred_0) %>%
+  rename(Reduced = .pred_0)
+
+# Build training ROC curves
+train_rocs <- cbind(train_scores %>% select(Truth.Annotation, Stein.Scott.Similarity.Nist, Stein.Scott.Similarity,
+                              DFT.Correlation, DWT.Correlation, Weighted.Cosine.Correlation,
+                              Inner.Product.Distance), train_full, train_reduce) %>%
+  mutate(
+    DFT.Correlation = 1 - DFT.Correlation,
+    DWT.Correlation = 1 - DWT.Correlation,
+    Stein.Scott.Similarity = 1 - Stein.Scott.Similarity,
+    Stein.Scott.Similarity.Nist = 1 - Stein.Scott.Similarity.Nist,
+    Weighted.Cosine.Correlation = 1 - Weighted.Cosine.Correlation
+  ) %>%
+  pivot_longer(2:ncol(.)) %>%
+  rename(Score = name, Value = value) %>%
+  group_by(Score) %>%
+  roc_curve(Truth.Annotation, Value)
+autoplot(train_rocs)
+
+# Calculate TP, TN, FP, FN
+
+# Calculate F1 score for each threshold
+train_rocs %>%
+  mutate(
+    TP = 7408 * sensitivity,
+    FN = 7408 - TP,
+    TN = 7408 * specificity,
+    FP = 7408 - TN,
+    Precision = TP / (TP + FP),
+    Recall = TP / (TP + FN),
+    F1 = (2 * Precision * Recall) / (Precision + Recall)
+  ) 
+
+
+
+
+# Get count of TP, TN, FP, FN
+get_t_count <- function(pred_df, tag) {
+  counts <- caret::confusionMatrix(data = pred_df$pred_class, reference = pred_df$Truth.Annotation)$table %>%
+    data.frame()
+  if (tag == "TP") {counts %>% filter(Prediction == 1 & Reference == 1) %>% select(Freq) %>% unlist()} 
+  else if (tag == "FP") {counts %>% filter(Prediction == 1 & Reference == 0) %>% select(Freq) %>% unlist()}
+  else if (tag == "TN") {counts %>% filter(Prediction == 0 & Reference == 0) %>% select(Freq) %>% unlist()} 
+  else {counts %>% filter(Prediction == 0 & Reference == 1) %>% select(Freq) %>% unlist()}
+}
+
+
+# Get ROC scores
+data.frame(
+  "Score" = c("Full Model", "Reduced Model", "Stein Scott Similarity NIST",
+              "Stein Scott Similarity", "DFT Correlation", "DWT Correlation", 
+              "Weighted Cosine Correlation", "Inner Product Distance"),
+  "AUC" = c(make_curve(test_pred %>% select(.pred_0, Truth.Annotation), "Full Model", convert = FALSE, 
+                       plot = FALSE),
+            make_curve(red_pred %>% select(.pred_0, Truth.Annotation), "Reduced Model", convert = FALSE,
+                       plot = FALSE),
+            make_curve(test_data %>% select(`Stein Scott Similarity Nist`, Truth.Annotation), 
+                       "Stein Scott Similarity NIST", flip_score = T, plot = FALSE),
+            make_curve(test_data %>% select(`Stein Scott Similarity`, Truth.Annotation), 
+                       "Stein Scott Similarity", flip_score = T, plot = FALSE),
+            make_curve(test_data %>% select(`DFT Correlation`, Truth.Annotation), "DFT Correlation", 
+                       flip_score = T, plot = FALSE),
+            make_curve(test_data %>% select(`DWT Correlation`, Truth.Annotation), "DWT Correlation",
+                       flip_score = T, plot = FALSE),
+            make_curve(test_data %>% select(`Weighted Cosine Correlation`, Truth.Annotation),
+                       "Weighted Cosine Correlation", flip_score = T, plot = FALSE),
+            make_curve(test_data %>% select(`Inner Product Distance`, Truth.Annotation), 
+                       "Inner Product Distance", plot = FALSE))
+)
+
+
+
+
+
 
 TP <- 2443
 FP <- 558
@@ -83,17 +232,7 @@ data.frame(
   pivot_longer(cols = 1:6) %>%
   rename(Metric = name, Value = value) %>% knitr::kable()
 
-Fig1b <- roc_curve(test_pred, truth = Truth.Annotation, .pred_0) %>%
-  rename(Sensitivity = sensitivity, Specificity = specificity) %>%
-  ggplot(aes(x = 1 - Specificity, y = Sensitivity)) + 
-  geom_line() +
-  ggtitle("ROC Curve, AUC = 0.996") +
-  xlab("False Positive Rate") + 
-  ylab("True Positive Rate") +
-  theme(plot.title = element_text(hjust = 0.5))
 
-Fig1 <- Fig1a + Fig1b + plot_annotation(tag_levels = "A")
-Fig1
 
 ################################################################################
 ## FIGURE 2: Scree plots and visualization of performance per metadata variable
