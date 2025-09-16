@@ -116,9 +116,24 @@ Fig1b <- ROC_DF %>%
         axis.text.y = element_text(size = 12),
         legend.text = element_text(size = 12),
         axis.title.x = element_text(size = 14),
+        axis.title.y = element_text(size = 14),
+        legend.position = "none")
+
+Fig1c <- ROC_DF %>%
+  rename(Sensitivity = sensitivity, Specificity = specificity) %>%
+  ggplot(aes(x = 1 - Specificity, y = Sensitivity, color = Score)) + 
+  geom_line() +
+  xlab("False Positive Rate") + 
+  ylab("True Positive Rate") +
+  xlim(0, 0.025) +
+  ylim(0.75, 1) +
+  theme(axis.text.x = element_text(size = 12), 
+        axis.text.y = element_text(size = 12),
+        legend.text = element_text(size = 12),
+        axis.title.x = element_text(size = 14),
         axis.title.y = element_text(size = 14))
 
-Fig1 <- Fig1a + Fig1b + plot_layout(widths = c(1,1.5)) + plot_annotation(tag_levels = "A")
+Fig1 <- Fig1a + Fig1b + Fig1c + plot_layout(widths = c(1,1, 1.5), nrow = 1) + plot_annotation(tag_levels = "A")
 Fig1
 
 ################################################################################
