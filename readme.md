@@ -1,8 +1,6 @@
 ## Ensemble GC-MS Spectral Similarity Score
 
-Publication: In preparation
-
-Citation: Flores et al. 2025
+Publication: https://pubs.acs.org/doi/full/10.1021/jasms.5c00176
 
 **Metadata**
 
