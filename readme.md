@@ -1,3 +1,7 @@
+This repository has been archived and is no longer maintained.
+The code is provided for historical reference and may contain unpatched or unknown vulnerabilities.
+It should not be used in production systems.
+
 ## Ensemble GC-MS Spectral Similarity Score
 
 Publication: https://pubs.acs.org/doi/full/10.1021/jasms.5c00176
